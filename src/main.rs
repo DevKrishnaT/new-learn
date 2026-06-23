@@ -1,52 +1,63 @@
-use rand::Rng;
-use std::io;
+use std::fs::{self};
+struct FileEntry {
+    name: String,
+    path: String,
+
+    size: u64,
+    is_dir: bool,
+}
 
 fn main() {
-       let secret_number = rand::thread_rng().gen_range(1..=100);
-       loop{
-        let mut guess = String::new();
-        println!("Please input your guess.");
-        io::stdin().read_line(&mut guess).expect("Filed To get input");
-
-        let guess: u32 =  match guess.trim().parse(){
-            Ok(num) => num,
-            Err(_) => {
-                println!("Please input a valid number");
-                continue;
-            }
+    fn scan_folder(path: &std::path::Path) -> Vec<FileEntry> {
+        let entries = match fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(_) => return vec![],
         };
+        let mut files: Vec<FileEntry> = Vec::new();
 
-        if guess < secret_number{
-            println!("Number is To low");
-        }else if guess > secret_number {
-            println!("number is To high")
-        }else{
-            println!("Found it you won");
-            break;
+        for entry in entries {
+            let entry = entry.unwrap();
+            let metadata = entry.metadata().unwrap();
+
+            files.push(FileEntry {
+                name: entry.file_name().to_string_lossy().to_string(),
+                path: entry.path().display().to_string(),
+                size: metadata.len(),
+                is_dir: metadata.is_dir(),
+            });
+            if metadata.is_dir() {
+                let sub_files = scan_folder(&entry.path());
+                files.extend(sub_files);
+            }
         }
-       }
-    // fn add(x: i32, y: i32) {
-    //    println!("Sum ;- {}" ,  x + y)
-    // }
-    // add(5, 7);
+        files
+    }
+    let mut files: Vec<FileEntry> = scan_folder(std::path::Path::new("."));
 
-    // fn sqaure(x: i32) -> i64 {
-    //     (x * x) as i64
-    // }
-    // println!("Sqaue :- {}" , sqaure(6));
+    let mut fileSize = 0;
+    let mut dir_size = 0;
+    let mut larget = 0;
+    let mut filename: String = String::from("");
 
-    // struct FileEntry {
-    //     path: String,
-    //     size: u64,
-    //     indexeed: bool,
-    // }
+    for file in files {
+        if file.is_dir {
+            dir_size += 1;
+        } else {
+            fileSize += 1;
+        }
 
-    // let file1 = FileEntry{
-    //     path: String::from("/hello/yellow"),
-    //     size: 92,
-    //     indexeed: true,
-    // };
+        if !file.is_dir && file.size > larget {
+            larget = file.size;
+            filename = file.name.clone();
+        }
 
-    // println!(" {} size - {} - indexed :-{}" ,file1.path , file1.size , file1.indexeed);
-   
+        println!(
+            "{} | {} | {} bytes | is_dir {}",
+            file.name, file.path, file.size, file.is_dir
+        );
+    }
+
+    println!("total number of file :- {}", fileSize);
+    println!("total number of dir :- {}", dir_size);
+    println!("larget file :- {} size of :- {}", filename, larget)
 }
