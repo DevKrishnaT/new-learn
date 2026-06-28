@@ -57,7 +57,7 @@ fn enum_usn_data(handle: HANDLE) {
                 start_frn = u64::from_le_bytes(buffer[0..8].try_into().unwrap());
                 let count = parse_usn_buffer(&buffer, bytes_returned , &mut map);
                 total_records += count;
-                println!("--- batch done, total so far: {total_records} ---");
+                println!("--- batch done, total: {total_records} ---");
             }
             Err(e) if e.code() == ERROR_HANDLE_EOF.to_hresult() => {
                 println!("MFT fully read.total record {total_records}");
@@ -65,7 +65,7 @@ fn enum_usn_data(handle: HANDLE) {
                 break;
             }
             Err(e) => {
-                println!("failed: {e:?}");
+                println!("failed: {e:? } ");
                 break;
             }
         }
