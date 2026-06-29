@@ -9,6 +9,8 @@ path = "src/src-service/main.rs"
 
 [dependencies]
 rand = "0.8.5"
+ahash = "0.8"
+chrono = "0.4"
 windows = { version = "0.58", features = [
     "Win32_Storage_FileSystem",
     "Win32_Foundation",

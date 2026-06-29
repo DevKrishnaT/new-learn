@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use ahash::AHashMap;
 use windows::Win32::Foundation::*;
 use windows::Win32::Storage::FileSystem::*;
 use windows::Win32::System::IO::DeviceIoControl;
@@ -6,7 +6,7 @@ use windows::Win32::System::Ioctl::{FSCTL_ENUM_USN_DATA, MFT_ENUM_DATA_V0};
 use windows::core::PCWSTR;
 
 struct FileEntry {
-    name: String,
+    name: Box<[u8]>,
     parent_frn: u64,
 }
 
@@ -28,8 +28,9 @@ fn open_volume(drive_latter: char) -> windows::core::Result<HANDLE> {
 fn enum_usn_data(handle: HANDLE) {
     let mut start_frn: u64 = 0;
     let mut total_records = 0u64;
-    let mut buffer = vec![0u8; 64 * 1024];
-    let mut map: HashMap<u64, FileEntry> = HashMap::with_capacity(4_000_000);
+    let mut buffer = vec![0u8; 1024 * 1024];
+
+    let mut map: AHashMap<u64, FileEntry> = AHashMap::with_capacity(4_000_000);
 
     loop {
         let input = MFT_ENUM_DATA_V0 {
@@ -55,9 +56,8 @@ fn enum_usn_data(handle: HANDLE) {
         match Result {
             Ok(_) => {
                 start_frn = u64::from_le_bytes(buffer[0..8].try_into().unwrap());
-                let count = parse_usn_buffer(&buffer, bytes_returned , &mut map);
+                let count = parse_usn_buffer(&buffer, bytes_returned, &mut map);
                 total_records += count;
-                println!("--- batch done, total: {total_records} ---");
             }
             Err(e) if e.code() == ERROR_HANDLE_EOF.to_hresult() => {
                 println!("MFT fully read.total record {total_records}");
@@ -70,14 +70,20 @@ fn enum_usn_data(handle: HANDLE) {
             }
         }
     }
+    let test_frns = [281474976710688u64, 281474976710686, 5348024557502483];
+
+    for frn in test_frns {
+        println!("{}", resolve_path(frn, &map));
+    }
+   
+    search("main_mole_logo", &map);
+  
 }
-fn parse_usn_buffer(buffer: &[u8], bytes_returned: u32 , map: &mut HashMap <u64 , FileEntry>) -> u64 {
+fn parse_usn_buffer(buffer: &[u8], bytes_returned: u32, map: &mut AHashMap<u64, FileEntry>) -> u64 {
     let data = &buffer[..bytes_returned as usize];
     if data.len() < 8 {
         return 0;
     }
-    let next_frn = u64::from_le_bytes(data[0..8].try_into().unwrap());
-    println!("next cursor frn: {next_frn}");
 
     let mut offset = 8usize;
     let mut count = 0u64;
@@ -96,18 +102,63 @@ fn parse_usn_buffer(buffer: &[u8], bytes_returned: u32 , map: &mut HashMap <u64 
         }
 
         let name_bytes = &record[fname_offset..fname_offset + fname_len];
-        let name_u16: Vec<u16> = name_bytes
-            .chunks_exact(2)
-            .map(|b| u16::from_le_bytes([b[0], b[1]]))
-            .collect();
-        let name = String::from_utf16_lossy(&name_u16);
+
+        let name = name_bytes.to_vec().into_boxed_slice();
 
         map.insert(frn, FileEntry { name, parent_frn });
 
         offset += record_len;
         count += 1;
     }
+
     count
+}
+
+fn search(query: &str, map: &AHashMap<u64, FileEntry>) {
+    let query_lower = query.to_lowercase();
+    let mut results = vec![];
+
+    for (frn, entry) in map.iter() {
+        let name = decode_name(&entry.name);
+        if name.to_lowercase().contains(&query_lower) {
+            results.push(resolve_path(*frn, map));
+        }
+    }
+    println!("found {} results:", results.len());
+    for r in &results {
+        println!("  {r}");
+    }
+}
+
+fn decode_name(raw: &[u8]) -> String {
+    let u16s: Vec<u16> = raw
+        .chunks_exact(2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        .collect();
+    String::from_utf16_lossy(&u16s).into()
+}
+
+fn resolve_path(frn: u64, map: &AHashMap<u64, FileEntry>) -> String {
+    let mut parts = vec![];
+    let mut current_frn = frn;
+    let mut depth = 0;
+
+    loop {
+        if depth > 64 {
+            break;
+        }
+        depth += 1;
+
+        match map.get(&current_frn) {
+            Some(entry) => {
+                parts.push(decode_name(&entry.name));
+                current_frn = entry.parent_frn;
+            }
+            None => break,
+        }
+    }
+    parts.reverse();
+    format!("C:\\{}", parts.join("\\"))
 }
 fn main() {
     let start = std::time::Instant::now();
